@@ -1,0 +1,71 @@
+on:
+  push:
+    tags:
+      - 'v*'
+
+name: build
+
+jobs:
+  build:
+    name: Release
+    runs-on: windows-2019
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Build
+      id: build
+      env:
+        DOCKER_TAG: magicxor/radstudio:xe8upd1-delphi-net3.5-ltsc2019
+      run: |
+        $currentDir = (Get-Location).Path;
+        docker run -v "${currentDir}:C:\build\app" ${env:DOCKER_TAG} powershell -Command 'msbuild /t:build /p:Config=Release /p:Platform=Win64 C:\build\app\ClipboardTransform\ClipboardTransform.dproj; Set-Content -NoNewline -Force -Path C:\build\app\build_result_64.txt -Value $LastExitCode; msbuild /t:build /p:Config=Release /p:Platform=Win32 C:\build\app\ClipboardTransform\ClipboardTransform.dproj; Set-Content -NoNewline -Force -Path C:\build\app\build_result_32.txt -Value $LastExitCode;';
+        $buildResult64 = Get-Content -Path build_result_64.txt;
+        $buildResult32 = Get-Content -Path build_result_32.txt;
+        if ($buildResult64 -ne '0') { throw ('msbuild exit code: ' + $buildResult64); } else { Write-Host ('msbuild exit code: ' + $buildResult64); }
+        if ($buildResult32 -ne '0') { throw ('msbuild exit code: ' + $buildResult32); } else { Write-Host ('msbuild exit code: ' + $buildResult32); }
+
+    - name: Copy binary files
+      id: copy-binary
+      run: |
+        $currentDir = (Get-Location).Path;
+        $win64binary = [IO.Path]::Combine($currentDir, 'ClipboardTransform', 'Win64', 'Release', 'ClipboardTransform.exe');
+        $win32binary = [IO.Path]::Combine($currentDir, 'ClipboardTransform', 'Win32', 'Release', 'ClipboardTransform.exe');
+        Copy-Item -Path $win64binary -Destination 'ClipboardTransform64.exe';
+        Copy-Item -Path $win32binary -Destination 'ClipboardTransform32.exe';
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          Automated Release by GitHub Action CI
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset (x64)
+      id: upload-release-asset-x64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./ClipboardTransform64.exe
+        asset_name: ClipboardTransform64.exe
+        asset_content_type: application/vnd.microsoft.portable-executable
+
+    - name: Upload Release Asset (x86)
+      id: upload-release-asset-x86
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./ClipboardTransform32.exe
+        asset_name: ClipboardTransform32.exe
+        asset_content_type: application/vnd.microsoft.portable-executable
